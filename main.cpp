@@ -2,6 +2,8 @@
 
 
 int main() {
+
+
 	if (!InitializeWindow({ 1280,720 })) {
 		return -1;
 	}
