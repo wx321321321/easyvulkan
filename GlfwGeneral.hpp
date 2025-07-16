@@ -74,10 +74,12 @@ bool InitializeWindow(VkExtent2D size, bool fullScreen = false, bool isResizable
     }
     
 
-    /*´ýCh1-4Ìî³ä*/
+    if (vulkan::graphicsBase::Base().CreateSwapchain(limitFrameRate))
+        return false;
     return true;
 }
 void TerminateWindow() {
+    vulkan::graphicsBase::Base().WaitIdle();
 	glfwTerminate();
 }
 void TitleFps() {
