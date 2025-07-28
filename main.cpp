@@ -31,12 +31,16 @@ void CreatePipeline() {
         graphicsPipelineCreateInfoPack pipelineCiPack;
         pipelineCiPack.createInfo.layout = pipelineLayout_triangle;
         pipelineCiPack.createInfo.renderPass = RenderPassAndFramebuffers().renderPass;
-        //数据来自0号顶点缓冲区，输入频率是逐顶点输入
         pipelineCiPack.vertexInputBindings.emplace_back(0, sizeof(vertex), VK_VERTEX_INPUT_RATE_VERTEX);
-        //location为0，数据来自0号顶点缓冲区，vec2对应VK_FORMAT_R32G32_SFLOAT，用offsetof计算position在vertex中的起始位置
+        //location为0，数据来自0号顶点缓冲区，vec2对应VK_FORMAT_R32G32_SFLOAT
         pipelineCiPack.vertexInputAttributes.emplace_back(0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(vertex, position));
-        //location为1，数据来自0号顶点缓冲区，vec4对应VK_FORMAT_R32G32B32A32_SFLOAT，用offsetof计算color在vertex中的起始位置
+        //location为1，数据来自0号顶点缓冲区，vec4对应VK_FORMAT_R32G32B32A32_SFLOAT
         pipelineCiPack.vertexInputAttributes.emplace_back(1, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(vertex, color));
+
+        //数据来自1号顶点缓冲区，输入频率是逐实例输入
+        pipelineCiPack.vertexInputBindings.emplace_back(1, sizeof(glm::vec2), VK_VERTEX_INPUT_RATE_INSTANCE);
+        //location为2，数据来自1号顶点缓冲区，vec2对应VK_FORMAT_R32G32_SFLOAT
+        pipelineCiPack.vertexInputAttributes.emplace_back(2, 1, VK_FORMAT_R32G32_SFLOAT, 0);
         pipelineCiPack.inputAssemblyStateCi.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
         pipelineCiPack.viewports.emplace_back(0.f, 0.f, float(windowSize.width), float(windowSize.height), 0.f, 1.f);
         pipelineCiPack.scissors.emplace_back(VkOffset2D{}, windowSize);
@@ -71,19 +75,19 @@ int main() {
     };
     /*新增*/VkClearValue clearColor = { .color = { 1.f, 0.f, 0.f, 1.f } };//红色
     vertex vertices[] = {
-    { { -.5f, -.5f }, { 1, 1, 0, 1 } },
-    { {  .5f, -.5f }, { 1, 0, 0, 1 } },
+    { {  .0f, -.5f }, { 1, 0, 0, 1 } },
     { { -.5f,  .5f }, { 0, 1, 0, 1 } },
     { {  .5f,  .5f }, { 0, 0, 1, 1 } }
     };
-    vertexBuffer vertexBuffer(sizeof vertices);
-    vertexBuffer.TransferData(vertices);
-    uint16_t indices[] = {
-    0, 1, 2,
-    1, 2, 3
+    glm::vec2 offsets[] = {
+    { .0f, .0f },
+    { -.5f, .0f },
+    { .5f, .0f }
     };
-    indexBuffer indexBuffer(sizeof indices);
-    indexBuffer.TransferData(indices);
+    vertexBuffer vertexBuffer_perVertex(sizeof vertices);
+    vertexBuffer_perVertex.TransferData(vertices);
+    vertexBuffer vertexBuffer_perInstance(sizeof offsets);
+    vertexBuffer_perInstance.TransferData(offsets);
     std::vector<perFrameObjects_t> perFrameObjects(graphicsBase::Base().SwapchainImageCount());
     commandPool commandPool(graphicsBase::Base().QueueFamilyIndex_Graphics(), VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
     for (auto& i : perFrameObjects)
@@ -102,12 +106,13 @@ int main() {
         auto CurrentImageIndex = graphicsBase::Base().CurrentImageIndex();
         commandBuffer.Begin(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
         /*新增，开始渲染通道*/renderPass.CmdBegin(commandBuffer, framebuffers[CurrentImageIndex], { {}, windowSize }, clearColor); 
+     
         VkDeviceSize offset = 0;
-        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffer.Address(), &offset);
-        vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffer_perVertex.Address(), &offset);
+        vkCmdBindVertexBuffers(commandBuffer, 1, 1, vertexBuffer_perInstance.Address(), &offset);
         
         /*新增*/vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_triangle);  
-       vkCmdDrawIndexed(commandBuffer, 6, 1, 0, 0, 0);
+        vkCmdDraw(commandBuffer, 3, 3, 0, 0);
       
         /*新增，结束渲染通道*/renderPass.CmdEnd(commandBuffer);
         commandBuffer.End();
