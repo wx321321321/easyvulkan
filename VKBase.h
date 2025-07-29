@@ -1,15 +1,20 @@
 #pragma once
 #include "EasyVKStart.h"
+#define VK_RESULT_THROW
+
 #define DestroyHandleBy(Func) if (handle) { Func(graphicsBase::Base().Device(), handle, nullptr); handle = VK_NULL_HANDLE; }
 #define MoveHandle handle = other.handle; other.handle = VK_NULL_HANDLE;
 #define DefineHandleTypeOperator operator decltype(handle)() const { return handle; }
 #define DefineAddressFunction const decltype(handle)* Address() const { return &handle; }
-#define ExecuteOnce(...) { static bool executed = false; if (executed) return __VA_ARGS__; executed = true; }
+
 #ifndef NDEBUG
 #define ENABLE_DEBUG_MESSENGER true
+//Prevent binding an implicitly generated rvalue to a const reference.
+#define DefineHandleTypeOperator operator volatile decltype(handle)() const { return handle; }
 #else
 #define ENABLE_DEBUG_MESSENGER false
 #endif
+
 //定义vulkan命名空间，之后会把Vulkan中一些基本对象的封装写在其中
 namespace vulkan {
 
@@ -666,7 +671,8 @@ namespace vulkan {
             vkGetPhysicalDeviceMemoryProperties(physicalDevice, &physicalDeviceMemoryProperties);
             //输出所用的物理设备名称
             outStream << std::format("Renderer: {}\n", physicalDeviceProperties.deviceName);
-            /*待Ch1-4填充*/
+            for (auto& i : callbacks_createDevice)
+                i();
             return VK_SUCCESS;
         }
 
@@ -700,7 +706,7 @@ namespace vulkan {
 
             outStream << std::format("Renderer: {}\n", physicalDeviceProperties.deviceName);
             for (auto& i : callbacks_createDevice)
-            {
+            {                
                 i();
             }
             return CreateDevice(flags);

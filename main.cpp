@@ -1,6 +1,7 @@
-﻿#include "GlfwGeneral.hpp"
+﻿#pragma once
+#include "GlfwGeneral.hpp"
 #include "EasyVulkan.hpp"
-#include "VKBase+.h"
+#include <thread>
 
 struct vertex {
     glm::vec2 position;
@@ -76,9 +77,11 @@ void CreatePipeline() {
 }
 
 int main() {
+    
     if (!InitializeWindow({ 1280,720 }))
         return -1;
-   
+    easyVulkan::BootScreen("yuanshen.png", VK_FORMAT_R8G8B8A8_UNORM);
+    std::this_thread::sleep_for(std::chrono::seconds(1));
     /*变更*/const auto& [renderPass, framebuffers] = RenderPassAndFramebuffers();
     /*新增*/CreateLayout();
     /*新增*/CreatePipeline();

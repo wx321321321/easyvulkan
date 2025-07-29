@@ -15,15 +15,10 @@
 #include <chrono>
 #include <numeric>
 #include <numbers>
-
-
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
-
 #include<glm.hpp>
 #include<gtc/matrix_transform.hpp>
-
 #include"stb_image.h"
-
 #ifdef _WIN32
 #define VK_USE_PLATFORM_WIN32_KHR
 #define NOMINMAX
@@ -100,3 +95,8 @@ public:
 };
 
 inline auto& outStream = std::cout;
+
+template <typename T>
+bool Between_Closed(T lower, T value, T upper) {
+    return (value >= lower && value <= upper);
+}
