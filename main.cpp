@@ -9,6 +9,7 @@ struct vertex {
 using namespace vulkan;
 pipelineLayout pipelineLayout_triangle;//管线布局
 pipeline pipeline_triangle;//管线
+descriptorSetLayout descriptorSetLayout_triangle;
 //该函数调用easyVulkan::CreateRpwf_Screen()并存储返回的引用到静态变量，避免重复调用easyVulkan::CreateRpwf_Screen()
 const auto& RenderPassAndFramebuffers() {
     static const auto& rpwf = easyVulkan::CreateRpwf_Screen();
@@ -16,7 +17,21 @@ const auto& RenderPassAndFramebuffers() {
 }
 //该函数用于创建管线布局
 void CreateLayout() {
-    VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo{};
+    VkDescriptorSetLayoutBinding descriptorSetLayoutBinding_trianglePosition = {
+    .binding = 0,
+    .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,//类型为动态uniform缓冲区
+    .descriptorCount = 1,
+    .stageFlags = VK_SHADER_STAGE_VERTEX_BIT
+    };
+    VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCreateInfo_triangle = {
+        .bindingCount = 1,
+        .pBindings = &descriptorSetLayoutBinding_trianglePosition
+    };
+    descriptorSetLayout_triangle.Create(descriptorSetLayoutCreateInfo_triangle);
+    VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {
+        .setLayoutCount = 1,
+        .pSetLayouts = descriptorSetLayout_triangle.Address()
+    };
     pipelineLayout_triangle.Create(pipelineLayoutCreateInfo);
 }
 //该函数用于创建管线
@@ -84,10 +99,33 @@ int main() {
     { -.5f, .0f },
     { .5f, .0f }
     };
+    glm::vec2 uniform_positions[] = {
+    {  .0f, .0f },
+    { -.5f, .0f },
+    {  .5f, .0f }
+    };
+    VkDeviceSize uniformAlignment = graphicsBase::Base().PhysicalDeviceProperties().limits.minUniformBufferOffsetAlignment;
+    uniformAlignment *= (std::ceil(float(sizeof(glm::vec2)) / uniformAlignment));
+    //上式可改为：
+    //uniformAlignment = (uniformAlignment + sizeof(glm::vec2) - 1) & ~(uniformAlignment - 1);
+    uniformBuffer uniformBuffer(uniformAlignment * 3);
+    uniformBuffer.TransferData(uniform_positions, 3, sizeof(glm::vec2), sizeof(glm::vec2), uniformAlignment);
     vertexBuffer vertexBuffer_perVertex(sizeof vertices);
     vertexBuffer_perVertex.TransferData(vertices);
     vertexBuffer vertexBuffer_perInstance(sizeof offsets);
     vertexBuffer_perInstance.TransferData(offsets);
+    VkDescriptorPoolSize descriptorPoolSizes[] = {
+     { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1 }
+    };
+    descriptorPool descriptorPool(1, descriptorPoolSizes);
+    descriptorSet descriptorSet_trianglePosition;
+    descriptorPool.AllocateSets(descriptorSet_trianglePosition, descriptorSetLayout_triangle);
+    VkDescriptorBufferInfo bufferInfo = {
+        .buffer = uniformBuffer,
+        .offset = 0,
+        .range = sizeof(glm::vec2) 
+    };
+    descriptorSet_trianglePosition.Write(bufferInfo, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC);
     std::vector<perFrameObjects_t> perFrameObjects(graphicsBase::Base().SwapchainImageCount());
     commandPool commandPool(graphicsBase::Base().QueueFamilyIndex_Graphics(), VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
     for (auto& i : perFrameObjects)
@@ -111,8 +149,13 @@ int main() {
         vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffer_perVertex.Address(), &offset);
         vkCmdBindVertexBuffers(commandBuffer, 1, 1, vertexBuffer_perInstance.Address(), &offset);
         
-        /*新增*/vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_triangle);  
-        vkCmdDraw(commandBuffer, 3, 3, 0, 0);
+        /*新增*/vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_triangle); 
+        for (size_t i = 0; i < 3; i++) {
+            uint32_t dynamicOffset = uniformAlignment * i;
+            vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                pipelineLayout_triangle, 0, 1, descriptorSet_trianglePosition.Address(), 1, &dynamicOffset);
+            vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+        }
       
         /*新增，结束渲染通道*/renderPass.CmdEnd(commandBuffer);
         commandBuffer.End();
