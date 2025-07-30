@@ -805,6 +805,27 @@ namespace vulkan {
 		}
 		//Static Function
 		/*CheckArguments(...) should only be called in tests*/
+		static VkSamplerCreateInfo SamplerCreateInfo() {
+			return {
+				.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+				.magFilter = VK_FILTER_LINEAR,
+				.minFilter = VK_FILTER_LINEAR,
+				.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+				.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+				.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+				.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+				.mipLodBias = 0.f,
+				.anisotropyEnable = VK_TRUE,
+				.maxAnisotropy = graphicsBase::Base().PhysicalDeviceProperties().limits.maxSamplerAnisotropy,
+				.compareEnable = VK_FALSE,
+				.compareOp = VK_COMPARE_OP_ALWAYS,
+				.minLod = 0.f,
+				.maxLod = VK_LOD_CLAMP_NONE,
+				.borderColor = {},
+				.unnormalizedCoordinates = VK_FALSE
+			};
+		}
+
 		static bool CheckArguments(VkImageType imageType, VkExtent3D extent, uint32_t arrayLayerCount, VkFormat format_initial, VkFormat format_final, bool generateMipmap) {
 			auto AliasedImageAvailability = [](VkImageType imageType, VkFormat format, VkExtent3D extent, uint32_t arrayLayerCount, VkImageUsageFlags usage) {
 				if (!(FormatProperties(format).linearTilingFeatures & VK_FORMAT_FEATURE_BLIT_SRC_BIT))
@@ -938,26 +959,7 @@ namespace vulkan {
 				graphicsBase::Plus().ExecuteCommandBuffer_Graphics(commandBuffer);
 			}
 		}
-		static VkSamplerCreateInfo SamplerCreateInfo() {
-			return {
-				.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-				.magFilter = VK_FILTER_LINEAR,
-				.minFilter = VK_FILTER_LINEAR,
-				.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
-				.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-				.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-				.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
-				.mipLodBias = 0.f,
-				.anisotropyEnable = VK_TRUE,
-				.maxAnisotropy = graphicsBase::Base().PhysicalDeviceProperties().limits.maxSamplerAnisotropy,
-				.compareEnable = VK_FALSE,
-				.compareOp = VK_COMPARE_OP_ALWAYS,
-				.minLod = 0.f,
-				.maxLod = VK_LOD_CLAMP_NONE,
-				.borderColor = {},
-				.unnormalizedCoordinates = VK_FALSE
-			};
-		}
+		
 	};
 
 	class texture2d :public texture {
@@ -1004,6 +1006,11 @@ namespace vulkan {
 		uint32_t Height() const { return extent.height; }
 		//Non-const Function
 		void Create(const char* filepath, VkFormat format_initial, VkFormat format_final, bool generateMipmap = true) {
+			VkExtent2D extent;
+			formatInfo formatInfo = FormatInfo(format_initial);//根据指定的format_initial取得格式信息
+			std::unique_ptr<uint8_t[]> pImageData = LoadFile(filepath, extent, formatInfo);
+			if (pImageData)
+				Create(pImageData.get(), extent, format_initial, format_final, generateMipmap);
 		}
 		void Create(const uint8_t* pImageData, VkExtent2D extent, VkFormat format_initial, VkFormat format_final, bool generateMipmap = true) {
 			this->extent = extent;
