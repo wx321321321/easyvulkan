@@ -2,7 +2,8 @@
 // MIT License.
 
 #include "model.hpp"
-
+#include "GlfwGeneral.hpp"
+#include "EasyVulkan.hpp"
 #include <unordered_map>
 #include <vector>
 #include <string>
@@ -90,7 +91,7 @@ std::vector<MeshMaterialGroup> loadModel(const std::string& path)
 				unique_vertices[vertex] = group.vertices.size(); // auto incrementing size
 				group.vertices.push_back(vertex);
 			}
-			group.vertex_indices.push_back(static_cast<util::Vertex::index_t>(unique_vertices[vertex]));
+			group.vertex_indices.push_back(static_cast<Vertex::index_t>(unique_vertices[vertex]));
 		};
 
 	for (const auto& shape : shapes)
@@ -138,35 +139,32 @@ std::vector<MeshMaterialGroup> loadModel(const std::string& path)
 /**
 * Load model from file and allocate vulkan resources needed
 */
-VModel VModel::loadModelFromFile(const VContext& vulkan_context, const std::string& path, const vk::Sampler& texture_sampler, const vk::DescriptorPool& descriptor_pool,
-	const vk::DescriptorSetLayout& material_descriptor_set_layout)
+VModel VModel::loadModelFromFile(const std::string& path, const vulkan::sampler& texture_sampler, const vulkan::descriptorPool& descriptor_pool,
+	const vulkan::descriptorSetLayout& material_descriptor_set_layout)
 {
 	VModel model;
 
-	auto device = vulkan_context.getDevice();
-	VUtility vulkan_utility{ vulkan_context };
-
+	auto device = graphicsBase::Base().Device();
 	//std::vector<util::Vertex> vertices, std::vector<util::Vertex::index_t> vertex_indices;
 	auto groups = loadModel(path);
-	vk::DeviceSize buffer_size = 0;
+	VkDeviceSize vertex_buffer_size = 0;
+	VkDeviceSize index_buffer_size = 0;
 	for (const auto& group : groups)
 	{
 		if (group.vertex_indices.size() <= 0)
 		{
 			continue;
 		}
-		vk::DeviceSize vertex_section_size = sizeof(group.vertices[0]) * group.vertices.size();
-		vk::DeviceSize index_section_size = sizeof(group.vertex_indices[0]) * group.vertex_indices.size();
-		buffer_size += vertex_section_size;
-		buffer_size += index_section_size;
+		VkDeviceSize vertex_section_size = sizeof(group.vertices[0]) * group.vertices.size();
+		VkDeviceSize index_section_size = sizeof(group.vertex_indices[0]) * group.vertex_indices.size();
+		vertex_buffer_size += vertex_section_size;
+		index_buffer_size += index_section_size;
 	}
 
-	std::tie(model.buffer, model.buffer_memory) = vulkan_utility.createBuffer(buffer_size
-		, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT
-		, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-	vk::DeviceSize current_offset = 0;
-
+	model.vertex_buffer.Create(vertex_buffer_size);
+	model.index_buffer.Create(index_buffer_size);
+	VkDeviceSize tempvertexsize = 0;
+	VkDeviceSize tempindexsize = 0;
 	for (const auto& group : groups)
 	{
 		if (group.vertex_indices.size() <= 0)
@@ -174,76 +172,32 @@ VModel VModel::loadModelFromFile(const VContext& vulkan_context, const std::stri
 			continue;
 		}
 
-		vk::DeviceSize vertex_section_size = sizeof(group.vertices[0]) * group.vertices.size();
-		vk::DeviceSize index_section_size = sizeof(group.vertex_indices[0]) * group.vertex_indices.size();
+		VkDeviceSize vertex_section_size = sizeof(group.vertices[0]) * group.vertices.size();
+		VkDeviceSize index_section_size = sizeof(group.vertex_indices[0]) * group.vertex_indices.size();
 
-		VBufferSection vertex_buffer_section = { model.buffer.get(), current_offset, vertex_section_size };
-		// copy vertex data
-		{
-			auto staging_buffer_size = vertex_section_size;
-			auto host_data = group.vertices.data();
+		model.vertex_buffer.TransferData(group.vertices.data(), vertex_section_size, tempvertexsize);
+		model.index_buffer.TransferData(group.vertex_indices.data(), index_section_size, tempindexsize);
 
-			VRaii<VkBuffer> staging_buffer;
-			VRaii<VkDeviceMemory> staging_buffer_memory;
-			std::tie(staging_buffer, staging_buffer_memory) = vulkan_utility.createBuffer(staging_buffer_size
-				, VK_BUFFER_USAGE_TRANSFER_SRC_BIT // to be transfered from
-				, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-			);
-
-			void* data = device.mapMemory(staging_buffer_memory.get(), 0, staging_buffer_size, vk::MemoryMapFlags());
-			memcpy(data, host_data, static_cast<size_t>(staging_buffer_size)); // may not be immediate due to memory caching or write operation not visiable without VK_MEMORY_PROPERTY_HOST_COHERENT_BIT or explict flusing
-			device.unmapMemory(staging_buffer_memory.get());
-
-			vulkan_utility.copyBuffer(staging_buffer.get(), model.buffer.get(), staging_buffer_size, 0, current_offset);
-
-			current_offset += staging_buffer_size;
-		}
-
-		VBufferSection index_buffer_section = { model.buffer.get(), current_offset, index_section_size };
-		// copy index data
-		{
-			auto staging_buffer_size = index_section_size;
-			auto host_data = group.vertex_indices.data();
-
-			VRaii<VkBuffer> staging_buffer;
-			VRaii<VkDeviceMemory> staging_buffer_memory;
-			std::tie(staging_buffer, staging_buffer_memory) = vulkan_utility.createBuffer(staging_buffer_size
-				, VK_BUFFER_USAGE_TRANSFER_SRC_BIT // to be transfered from
-				, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-			);
-
-			void* data = device.mapMemory(staging_buffer_memory.get(), 0, staging_buffer_size, vk::MemoryMapFlags());
-			memcpy(data, host_data, static_cast<size_t>(staging_buffer_size)); // may not be immediate due to memory caching or write operation not visiable without VK_MEMORY_PROPERTY_HOST_COHERENT_BIT or explict flusing
-			device.unmapMemory(staging_buffer_memory.get());
-
-			vulkan_utility.copyBuffer(staging_buffer.get(), model.buffer.get(), staging_buffer_size, 0, current_offset);
-
-			current_offset += staging_buffer_size;
-		}
+		VBufferSection vertex_buffer_section = { model.vertex_buffer, tempvertexsize, vertex_section_size };
+		VBufferSection index_buffer_section = { model.index_buffer, tempindexsize, index_section_size };
 
 		VMeshPart part = { vertex_buffer_section, index_buffer_section, group.vertex_indices.size() };
 
 		if (!group.albedo_map_path.empty())
 		{
-			model.images.emplace_back();
-			model.image_memories.emplace_back();
-			model.imageviews.emplace_back();
-			std::tie(model.images.back(), model.image_memories.back(), model.imageviews.back()) = vulkan_utility.loadImageFromFile(group.albedo_map_path);
-			part.albedo_map = model.imageviews.back().get();
+			model.textures.emplace_back(group.albedo_map_path, VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_R8G8B8A8_UNORM);
+			part.albedo_map.Create(group.albedo_map_path.c_str(), VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_R8G8B8A8_UNORM);
 		}
 		if (!group.normal_map_path.empty())
 		{
-			model.images.emplace_back();
-			model.image_memories.emplace_back();
-			model.imageviews.emplace_back();
-			std::tie(model.images.back(), model.image_memories.back(), model.imageviews.back()) = vulkan_utility.loadImageFromFile(group.normal_map_path);
-			part.normal_map = model.imageviews.back().get();
+			model.textures.emplace_back(group.normal_map_path, VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_R8G8B8A8_UNORM);
+			part.normal_map.Create(group.normal_map_path.c_str(), VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_R8G8B8A8_UNORM);
 		}
 
 		model.mesh_parts.push_back(part);
 	}
 
-	auto createMaterialDescriptorSet = [&vulkan_utility, &device, &texture_sampler, &descriptor_pool, &material_descriptor_set_layout, &uniform_buffer_memory = model.uniform_buffer_memory.get()](
+	auto createMaterialDescriptorSet = [ &device, &texture_sampler, &descriptor_pool, &material_descriptor_set_layout](
 		VMeshPart& mesh_part
 		, VBufferSection uniform_buffer_section
 		)
@@ -255,73 +209,55 @@ VModel VModel::loadModelFromFile(const VContext& vulkan_context, const std::stri
 			alloc_info.descriptorSetCount = 1;
 			alloc_info.pSetLayouts = layouts;
 
-			auto descriptor_set = device.allocateDescriptorSets(alloc_info)[0];
+			descriptorSet descriptor_set ;
+			descriptor_pool.AllocateSets(descriptor_set, material_descriptor_set_layout);
+
 			MaterialUbo ubo{ 0, 0 };
 
-			std::vector<vk::WriteDescriptorSet> descriptor_writes = {};
+			std::vector<VkWriteDescriptorSet> descriptor_writes = {};
 
-			// refer to the uniform object buffer
-			vk::DescriptorBufferInfo uniform_buffer_info = {};
+		
+			VkDescriptorBufferInfo uniform_buffer_info = {}; 
+			uniform_buffer_info.buffer = uniform_buffer_section.handle;
+			uniform_buffer_info.offset = uniform_buffer_section.offset;
+			uniform_buffer_info.range = uniform_buffer_section.size;
+			descriptor_set.Write(
+				arrayRef(&uniform_buffer_info, 1),          // 包装后的缓冲区信息数组引用
+				VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,          // 描述符类型（原生Vk枚举）
+				0                                           // 目标绑定点（对应着色器 layout(binding=0)）
+			);
+
+			if (!mesh_part.albedo_map.texture2dEmpty())
 			{
-				uniform_buffer_info.buffer = uniform_buffer_section.buffer;
-				uniform_buffer_info.offset = uniform_buffer_section.offset;
-				uniform_buffer_info.range = uniform_buffer_section.size;
-				// ubo
-				descriptor_writes.emplace_back(
-					descriptor_set,  //dstSet
-					0,  // dstBinding
-					0,  // dstArrayElement
-					1,  // descriptorCOunt
-					vk::DescriptorType::eUniformBuffer,  // descriptorType
-					nullptr,  // pImageInfo
-					&uniform_buffer_info,  // pBufferInfo
-					nullptr  // pTexelBufferView
+				ubo.has_albedo_map = 1; // 更新UBO中纹理存在标记
+
+				VkDescriptorImageInfo albedo_map_info = {};
+				albedo_map_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL; // 原生Vk布局枚举
+				albedo_map_info.imageView = mesh_part.albedo_map.ImageView();                  // 图像视图句柄
+				albedo_map_info.sampler = texture_sampler;                         // 纹理采样器句柄
+
+				// 用 arrayRef 包装单个纹理信息，调用 Write 写入描述符集
+				descriptor_set.Write(
+					arrayRef(&albedo_map_info, 1),                  // 包装后的图像信息数组引用
+					VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,       // 描述符类型（采样器+图像视图组合）
+					1                                               // 目标绑定点（对应着色器 layout(binding=1)）
 				);
 			}
-
-			vk::DescriptorImageInfo albedo_map_info = {};
-			if (mesh_part.albedo_map)
+			if (!mesh_part.normal_map.texture2dEmpty())
 			{
-				ubo.has_albedo_map = 1;
-				albedo_map_info.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-				albedo_map_info.imageView = mesh_part.albedo_map;
-				albedo_map_info.sampler = texture_sampler;
-
-				descriptor_writes.emplace_back(
-					descriptor_set,  //dstSet
-					1,  // dstBinding
-					0,  // dstArrayElement
-					1,  // descriptorCOunt
-					vk::DescriptorType::eCombinedImageSampler,  // descriptorType
-					&albedo_map_info,  // pImageInfo
-					nullptr,  // pBufferInfo
-					nullptr  // pTexelBufferView
-				);
-			}
-
-			vk::DescriptorImageInfo normalmap_info = {};
-			if (mesh_part.normal_map)
-			{
-				ubo.has_normal_map = 1;
-				normalmap_info.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-				normalmap_info.imageView = mesh_part.normal_map;
+				ubo.has_normal_map = 1; // 更新UBO中纹理存在标记
+				VkDescriptorImageInfo normalmap_info = {};
+				normalmap_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				normalmap_info.imageView = mesh_part.normal_map.ImageView();
 				normalmap_info.sampler = texture_sampler;
-
-				descriptor_writes.emplace_back(
-					descriptor_set,  //dstSet
-					2,  // dstBinding
-					0,  // dstArrayElement
-					1,  // descriptorCOunt
-					vk::DescriptorType::eCombinedImageSampler,  // descriptorType
-					&normalmap_info,  // pImageInfo
-					nullptr,  // pBufferInfo
-					nullptr  // pTexelBufferView
+				descriptor_set.Write(
+					arrayRef(&normalmap_info, 1),                   // 包装后的图像信息数组引用
+					VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,       // 描述符类型
+					2                                               // 目标绑定点（对应着色器 layout(binding=2)）
 				);
 			}
 
-			device.updateDescriptorSets(descriptor_writes, std::array<vk::CopyDescriptorSet, 0>());
-
-			mesh_part.material_descriptor_set = descriptor_set;
+			mesh_part.material_descriptor_set(descriptor_set);
 
 			vk::DeviceSize staging_buffer_size = uniform_buffer_section.size;
 			VRaii<VkBuffer> staging_buffer;

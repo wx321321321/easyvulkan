@@ -993,6 +993,7 @@ namespace vulkan {
 				}
 		}
 	public:
+		bool texture2dEmpty() { return extent.height==0&& extent.width == 0; }
 		texture2d() = default;
 		texture2d(const char* filepath, VkFormat format_initial, VkFormat format_final, bool generateMipmap = true) {
 			Create(filepath, format_initial, format_final, generateMipmap);

@@ -1,6 +1,5 @@
 #pragma once
 #include "VKBase+.h"
-
 #include <vector>
 
 class VContext;
@@ -16,8 +15,8 @@ struct VBufferSection
 
 	VBufferSection() = default;
 
-	VBufferSection(const vulkan::buffer& buf, VkDeviceSize offset, VkDeviceSize size)
-		: handle(buf),  // 假设 buffer 有获取句柄的方法
+	VBufferSection(const vulkan::deviceLocalBuffer& buf, VkDeviceSize offset, VkDeviceSize size)
+		: handle(buf), 
 		offset(offset),
 		size(size) {
 	}
@@ -31,10 +30,9 @@ struct VMeshPart
 	VBufferSection index_buffer_section = {};
 	VBufferSection material_uniform_buffer_section = {};
 	size_t index_count = 0;
-	vulkan::descriptorSet material_descriptor_set = {};  // TODO: I still need a per-instance descriptor set
-
-	vulkan::imageView albedo_map = {};
-	vulkan::imageView normal_map = {};
+	vulkan::descriptorSet material_descriptor_set = {};  
+	vulkan::texture2d albedo_map ;
+	vulkan::texture2d normal_map ;
 
 
 
@@ -63,7 +61,7 @@ public:
 		return mesh_parts;
 	}
 
-	static VModel loadModelFromFile(const VContext& vulkan_context, const std::string& path
+	static VModel loadModelFromFile(const std::string& path
 		, const vulkan::sampler& texture_sampler, const vulkan::descriptorPool& descriptor_pool,
 		const vulkan::descriptorSetLayout& material_descriptor_set_layout);
 
@@ -74,10 +72,7 @@ private:
 	vulkan::vertexBuffer vertex_buffer;
 	vulkan::indexBuffer index_buffer;
 	vulkan::uniformBuffer uniform_buffer;
-	std::vector<vulkan::image> images;
-	std::vector<vulkan::imageView> imageviews;
-	std::vector<vulkan::imageMemory> image_memories; //TODO: use a single memory, or two
-
+	std::vector<vulkan::texture2d>textures;
 	std::vector<VMeshPart> mesh_parts;
 
 };
