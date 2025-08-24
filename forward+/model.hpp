@@ -9,13 +9,13 @@ class VContext;
 */
 struct VBufferSection
 {
-	VkBuffer handle = VK_NULL_HANDLE; 
+	VkBuffer handle = VK_NULL_HANDLE;
 	VkDeviceSize offset = 0;
 	VkDeviceSize size = 0;
 
 	VBufferSection() = default;
 
-	VBufferSection(const vulkan::deviceLocalBuffer& buf, VkDeviceSize offset, VkDeviceSize size)
+	VBufferSection(vulkan::deviceLocalBuffer& buf, VkDeviceSize offset, VkDeviceSize size)
 		: handle(buf), 
 		offset(offset),
 		size(size) {

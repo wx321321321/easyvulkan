@@ -199,7 +199,7 @@ VModel VModel::loadModelFromFile(const std::string& path, const vulkan::sampler&
 
 	auto createMaterialDescriptorSet = [ &device, &texture_sampler, &descriptor_pool, &material_descriptor_set_layout](
 		VMeshPart& mesh_part
-		, VBufferSection uniform_buffer_section
+		, vulkan::uniformBuffer& uniform_buffer, VkDeviceSize offset, VkDeviceSize size
 		)
 		{
 			VkDescriptorSetLayout layouts[] = { material_descriptor_set_layout };
@@ -209,8 +209,8 @@ VModel VModel::loadModelFromFile(const std::string& path, const vulkan::sampler&
 			alloc_info.descriptorSetCount = 1;
 			alloc_info.pSetLayouts = layouts;
 
-			descriptorSet descriptor_set ;
-			descriptor_pool.AllocateSets(descriptor_set, material_descriptor_set_layout);
+			 
+			descriptor_pool.AllocateSets(mesh_part.material_descriptor_set, material_descriptor_set_layout);
 
 			MaterialUbo ubo{ 0, 0 };
 
@@ -218,10 +218,10 @@ VModel VModel::loadModelFromFile(const std::string& path, const vulkan::sampler&
 
 		
 			VkDescriptorBufferInfo uniform_buffer_info = {}; 
-			uniform_buffer_info.buffer = uniform_buffer_section.handle;
-			uniform_buffer_info.offset = uniform_buffer_section.offset;
-			uniform_buffer_info.range = uniform_buffer_section.size;
-			descriptor_set.Write(
+			uniform_buffer_info.buffer = uniform_buffer;
+			uniform_buffer_info.offset = offset;
+			uniform_buffer_info.range = size;
+			mesh_part.material_descriptor_set.Write(
 				arrayRef(&uniform_buffer_info, 1),          // 包装后的缓冲区信息数组引用
 				VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,          // 描述符类型（原生Vk枚举）
 				0                                           // 目标绑定点（对应着色器 layout(binding=0)）
@@ -237,7 +237,7 @@ VModel VModel::loadModelFromFile(const std::string& path, const vulkan::sampler&
 				albedo_map_info.sampler = texture_sampler;                         // 纹理采样器句柄
 
 				// 用 arrayRef 包装单个纹理信息，调用 Write 写入描述符集
-				descriptor_set.Write(
+				mesh_part.material_descriptor_set.Write(
 					arrayRef(&albedo_map_info, 1),                  // 包装后的图像信息数组引用
 					VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,       // 描述符类型（采样器+图像视图组合）
 					1                                               // 目标绑定点（对应着色器 layout(binding=1)）
@@ -250,45 +250,28 @@ VModel VModel::loadModelFromFile(const std::string& path, const vulkan::sampler&
 				normalmap_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 				normalmap_info.imageView = mesh_part.normal_map.ImageView();
 				normalmap_info.sampler = texture_sampler;
-				descriptor_set.Write(
+				mesh_part.material_descriptor_set.Write(
 					arrayRef(&normalmap_info, 1),                   // 包装后的图像信息数组引用
 					VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,       // 描述符类型
 					2                                               // 目标绑定点（对应着色器 layout(binding=2)）
 				);
 			}
 
-			mesh_part.material_descriptor_set(descriptor_set);
-
-			vk::DeviceSize staging_buffer_size = uniform_buffer_section.size;
-			VRaii<VkBuffer> staging_buffer;
-			VRaii<VkDeviceMemory> staging_buffer_memory;
-			std::tie(staging_buffer, staging_buffer_memory) = vulkan_utility.createBuffer(staging_buffer_size
-				, VK_BUFFER_USAGE_TRANSFER_SRC_BIT // to be transfered from
-				, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-			);
-
-			void* data = device.mapMemory(staging_buffer_memory.get(), 0, staging_buffer_size, vk::MemoryMapFlags());
-			memcpy(data, &ubo, static_cast<size_t>(staging_buffer_size)); // may not be immediate due to memory caching or write operation not visiable without VK_MEMORY_PROPERTY_HOST_COHERENT_BIT or explict flusing
-			device.unmapMemory(staging_buffer_memory.get());
-
-			vulkan_utility.copyBuffer(staging_buffer.get(), uniform_buffer_info.buffer, staging_buffer_size, 0, uniform_buffer_info.offset);
-
+			uniform_buffer.TransferData(&ubo, offset, size);
 		};
 
+	const VkDeviceSize ubo_aligned_size = uniformBuffer::CalculateAlignedSize(sizeof(MaterialUbo));
+	const VkDeviceSize total_uniform_size = ubo_aligned_size * model.mesh_parts.size(); 
 
-	auto min_alignment = vulkan_context.getPhysicalDeviceProperties().limits.minUniformBufferOffsetAlignment;
-	vk::DeviceSize alignment_offset = ((sizeof(MaterialUbo) - 1) / min_alignment + 1) * min_alignment;
+	model.uniform_buffer.Create(total_uniform_size);
 
-	vk::DeviceSize uniform_buffer_size = alignment_offset * model.mesh_parts.size();
-	std::tie(model.uniform_buffer, model.uniform_buffer_memory) = vulkan_utility.createBuffer(uniform_buffer_size
-		, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT
-		, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-	vk::DeviceSize uniform_buffer_total_offset = 0;
-	for (auto& part : model.mesh_parts)
+	VkDeviceSize current_uniform_offset = 0;
+	for (auto& mesh_part : model.mesh_parts)
 	{
-		createMaterialDescriptorSet(part, VBufferSection(model.uniform_buffer.get(), uniform_buffer_total_offset, sizeof(MaterialUbo)));
-		uniform_buffer_total_offset += alignment_offset;
+		createMaterialDescriptorSet(mesh_part, model.uniform_buffer,
+			current_uniform_offset,
+			sizeof(MaterialUbo));
+		current_uniform_offset += ubo_aligned_size;
 	}
 
 	return model;
